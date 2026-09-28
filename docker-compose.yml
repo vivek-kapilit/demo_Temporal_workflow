@@ -1,0 +1,86 @@
+# Full POC stack in Docker:
+#
+#   frontend (nginx + React)  http://localhost:3000   -> proxies /api to "api"
+#   api      (FastAPI)        http://localhost:8000   -> Temporal Client
+#   worker   (Temporal Worker: PaymentWorkflow + activities)
+#   temporal (Temporal dev server)  gRPC localhost:7233, Web UI http://localhost:8233
+#
+#   docker compose up -d --build        # everything
+#   docker compose up -d temporal       # only Temporal (when running backend/frontend locally)
+#
+# Inside the Docker network services reach each other by service name
+# (e.g. the worker connects to temporal:7233, nginx proxies to api:8000).
+
+x-backend-env: &backend-env
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: default
+  TEMPORAL_TASK_QUEUE: payment-task-queue
+  # api and worker share this SQLite file through the app-data volume.
+  DATABASE_PATH: /data/payments.db
+  APPROVAL_THRESHOLD: "50000"
+  APPROVAL_TIMEOUT_SECONDS: "600"
+  STEP_DELAY_SECONDS: "2"
+  PROCESSING_DELAY_SECONDS: "10"
+  FRONTEND_ORIGIN: http://localhost:3000
+
+services:
+  temporal:
+    image: temporalio/temporal:latest
+    container_name: temporal-dev
+    command: [server, start-dev, --ip, 0.0.0.0, --db-filename, /data/temporal.db]
+    user: root
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+    volumes:
+      # Workflow history lives here, so workflows survive container restarts.
+      - temporal-data:/data
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    container_name: payment-api
+    environment: *backend-env
+    ports:
+      - "8000:8000"
+    volumes:
+      - app-data:/data
+    depends_on:
+      temporal:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    container_name: payment-worker
+    command: ["python", "-m", "app.temporal_worker"]
+    environment: *backend-env
+    volumes:
+      - app-data:/data
+    depends_on:
+      temporal:
+        condition: service_healthy
+    # No automatic restart: in the recovery demo YOU kill and restart the worker.
+    restart: "no"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_TEMPORAL_UI_URL: http://localhost:8233
+        VITE_TEMPORAL_NAMESPACE: default
+    container_name: payment-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  temporal-data:
+  app-data:
