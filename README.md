@@ -8,6 +8,67 @@ application: React → FastAPI → Temporal → Worker → Workflow → Activiti
 
 ---
 
+## Run it on a new machine (after `git clone`)
+
+The only thing you need is **[Docker Desktop](https://www.docker.com/products/docker-desktop/)**
+(Windows / macOS) or Docker Engine + Compose plugin (Linux). No Python or Node install needed.
+
+**1. Clone the repo**
+
+```bash
+git clone https://github.com/vivek-kapilit/demo_Temporal_workflow.git
+cd demo_Temporal_workflow
+```
+
+**2. Make sure Docker is running** (open Docker Desktop and wait until it says *Engine running*).
+
+**3. Build and start everything** (run from the folder that contains `docker-compose.yml`):
+
+```bash
+docker compose up -d --build
+```
+
+The first run takes a few minutes while images are downloaded and built.
+
+**4. Check that all 4 containers are up**
+
+```bash
+docker compose ps
+```
+
+You should see `temporal-dev`, `payment-api`, `payment-worker` and `payment-frontend` all with
+status **Up**.
+
+**5. Open the app**
+
+| What | URL |
+|---|---|
+| **Payment app (frontend)** | **<http://localhost:3000>** |
+| Temporal Web UI (workflow history) | <http://localhost:8233> |
+| API docs (Swagger) | <http://localhost:8000/docs> |
+
+> **Note:** port 8233 is the *Temporal* UI, not the app. The payment app is on **port 3000**.
+
+**Stop / reset**
+
+```bash
+docker compose down        # stop everything, keep data
+docker compose down -v     # stop and wipe all data (balances reset, workflow history deleted)
+```
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Only `temporal-dev` is running / no frontend link, only the Temporal UI opens | You started Temporal alone (`docker compose up -d temporal`). Run `docker compose up -d --build` to start all 4 containers. |
+| `Cannot connect to the Docker daemon` / `pipe/docker_engine` error | Docker Desktop is not running. Start it and retry. |
+| `port is already allocated` (3000, 8000, 7233 or 8233) | Another program uses that port. Stop it, or change the left-hand port in `docker-compose.yml` (e.g. `"3001:80"`). |
+| `payment-worker` shows **Exited** | Start it again: `docker start payment-worker`. See logs with `docker compose logs worker`. |
+| App loads but shows errors / no accounts | Check the API: `docker compose logs api`. Then restart: `docker compose restart api`. |
+| Changed code but nothing changed in the app | Rebuild: `docker compose up -d --build`. |
+
+---
+
 ## 1. What Temporal is doing in this project
 
 Creating a payment runs a multi-step business process. Any step can fail, be slow, or wait for a
